@@ -34,7 +34,6 @@ def post_collection_batch(
             kwargs["triggered_at"] = body.triggered_at
         if body.correlation_id is not None:
             kwargs["correlation_id"] = str(body.correlation_id)
-        kwargs.update(body.model_extra or {})
     try:
         _enqueue(celery_app, "tasks.collection_batch", kwargs)
     except OperationalError as e:

@@ -3,14 +3,14 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 
 
 class CollectionBatchEvent(BaseModel):
     triggered_at: str | None = Field(None, alias="triggeredAt")
     correlation_id: UUID | None = Field(None, alias="correlationId")
 
-    model_config = ConfigDict(populate_by_name=True, extra="allow")
+    model_config = {"populate_by_name": True}
 
 
 class CollectionQueryEvent(BaseModel):

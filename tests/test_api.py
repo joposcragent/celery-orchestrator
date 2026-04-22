@@ -67,10 +67,16 @@ def test_queue_collection_query_parent_not_found(client: TestClient) -> None:
 
 
 def test_queue_collection_batch_enqueues(client: TestClient, captured_tasks: list) -> None:
-    r = client.post("/queue-broker/events/collection-batch", json={"correlationId": str(uuid.uuid4())})
+    cid = str(uuid.uuid4())
+    r = client.post(
+        "/queue-broker/events/collection-batch",
+        json={"correlationId": cid, "reason": "manual"},
+    )
     assert r.status_code == 204
     assert len(captured_tasks) == 1
     assert captured_tasks[0][0] == "tasks.collection_batch"
+    assert captured_tasks[0][1]["correlation_id"] == cid
+    assert captured_tasks[0][1]["reason"] == "manual"
 
 
 def test_queue_evaluation_with_parent_missing(client: TestClient) -> None:

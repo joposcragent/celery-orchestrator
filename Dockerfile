@@ -14,7 +14,8 @@ COPY pyproject.toml README.md ./
 COPY src ./src
 
 RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir .
+    && pip install --no-cache-dir . \
+    && python -c "import celery_orchestrator; import celery_orchestrator.celery_app"
 
 COPY docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
