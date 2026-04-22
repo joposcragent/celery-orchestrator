@@ -32,7 +32,7 @@ class CollectionQueryProgressEvent(BaseModel):
 
 class CollectionQueryCompleteEvent(BaseModel):
     collection_query_task_uuid: UUID = Field(alias="collectionQueryTaskUuid")
-    execution_log: Any
+    execution_log: Any = Field(alias="executionLog")
     result: dict[str, Any]
 
     model_config = {"populate_by_name": True}
@@ -48,7 +48,7 @@ class EvaluationEnqueueEvent(BaseModel):
 
 class EvaluationCompleteEvent(BaseModel):
     evaluation_task_uuid: UUID = Field(alias="evaluationTaskUuid")
-    execution_log: Any
+    execution_log: Any = Field(alias="executionLog")
     result: dict[str, Any]
 
     model_config = {"populate_by_name": True}
