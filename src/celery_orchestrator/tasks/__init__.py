@@ -1,1 +1,0 @@
-"""Celery task definitions."""
