@@ -1,0 +1,13 @@
+celery[redis]<6,>=5.3
+fastapi<1,>=0.115
+flower<3,>=2.0
+httpx<1,>=0.27
+pydantic-settings<3,>=2.6
+redis<6,>=5.0
+uvicorn[standard]<1,>=0.32
+
+[dev]
+fakeredis[lua]<3,>=2.23
+pytest<9,>=8.0
+pytest-cov<6,>=5.0
+respx<1,>=0.21
