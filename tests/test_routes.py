@@ -32,6 +32,28 @@ def test_post_progress_204(client):
     assert r.status_code == 204
 
 
+def test_post_progress_accepts_extra_fields_204(client):
+    r = client.post(
+        "/events-queue/progress",
+        json={
+            "correlationId": "550e8400-e29b-41d4-a716-446655440000",
+            "createdAt": "2026-01-01T00:00:00Z",
+            "jobPostingUuid": "550e8400-e29b-41d4-a716-446655440002",
+            "vacancyUrl": "https://example.com/v",
+            "executionLog": "x",
+            "status": "FAILED",
+            "futureField": {"nested": True},
+        },
+    )
+    assert r.status_code == 204
+
+
+def test_post_progress_empty_body_422(client):
+    r = client.post("/events-queue/progress", content=b"")
+    assert r.status_code == 422
+    assert "request body is required" in r.json()["detail"]
+
+
 def test_post_finish_204(client):
     r = client.post(
         "/events-queue/finish",

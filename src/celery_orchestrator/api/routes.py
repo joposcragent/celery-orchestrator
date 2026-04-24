@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import json
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Body, HTTPException, Response
+from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import PlainTextResponse
 
 from celery_orchestrator.celery_app import app as celery_app
@@ -15,6 +16,20 @@ router = APIRouter()
 
 _EVENT_NAMES = frozenset({"collection-batch", "collection-query", "evaluation", "notification"})
 _RESERVED_QUEUE_KEYS = frozenset({"executionLog", "result", "status"})
+
+
+async def _read_json_object(request: Request) -> dict[str, Any]:
+    """Parse JSON body as an object. Tolerates any extra keys (not validated by Pydantic)."""
+    raw = await request.body()
+    if not raw:
+        raise HTTPException(status_code=422, detail="request body is required")
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=422, detail=f"invalid JSON: {exc}") from exc
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=422, detail="JSON body must be an object")
+    return data
 
 
 def _storage() -> RedisTaskStorage:
@@ -48,21 +63,24 @@ def _enqueue(task_name: str, body: dict[str, Any]) -> None:
 
 
 @router.post("/events-queue/progress", status_code=204)
-def post_progress(body: dict[str, Any] = Body(...)) -> Response:
+async def post_progress(request: Request) -> Response:
+    body = await _read_json_object(request)
     _enqueue("task.progress", dict(body))
     return Response(status_code=204)
 
 
 @router.post("/events-queue/finish", status_code=204)
-def post_finish(body: dict[str, Any] = Body(...)) -> Response:
+async def post_finish(request: Request) -> Response:
+    body = await _read_json_object(request)
     _enqueue("task.finish", dict(body))
     return Response(status_code=204)
 
 
 @router.post("/events-queue/{event_name}", status_code=204)
-def post_event(event_name: str, body: dict[str, Any] = Body(...)) -> Response:
+async def post_event(event_name: str, request: Request) -> Response:
     if event_name not in _EVENT_NAMES:
         raise HTTPException(status_code=422, detail="unknown event name")
+    body = await _read_json_object(request)
     task_name = f"task.{event_name}"
     _enqueue(task_name, dict(body))
     return Response(status_code=204)
