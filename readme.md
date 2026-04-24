@@ -59,12 +59,33 @@ pytest
 
 Порог покрытия **60%** задан в `pyproject.toml` (`--cov-fail-under=60`).
 
+## Скрипт локальной сборки Docker-образа
+
+Из каталога `app/celery-orchestrator` (нужны установленные **Docker** и **Python 3.12+**, как у сервиса; для чтения версии используется стандартный `tomllib`):
+
+```bash
+python scripts/build_image.py
+```
+
+Скрипт:
+
+1. Читает версию из `[project].version` в `pyproject.toml`.
+2. Выполняет `docker build` с тегом `joposcragent/celery-orchestrator:<версия>`.
+3. Перевешивает тег `joposcragent/celery-orchestrator:latest` на только что собранный образ (`docker tag`).
+
+Переопределение без правки файлов (опционально):
+
+| Переменная окружения | Назначение |
+|----------------------|------------|
+| `DOCKER_IMAGE_NAME` | Имя образа без тега (по умолчанию `joposcragent/celery-orchestrator`) |
+| `DOCKER_IMAGE_VERSION` | Тег версии вместо значения из `pyproject.toml` |
+
 ## Сборка и запуск Docker (один образ)
 
 Из каталога `app/celery-orchestrator`:
 
 ```bash
-docker build -t joposcragent/celery-orchestrator:latest .
+python scripts/build_image.py
 docker run --rm -e REDIS_URL=redis://host.docker.internal:6379/0 -p 8000:8000 joposcragent/celery-orchestrator:latest
 ```
 
@@ -72,11 +93,11 @@ docker run --rm -e REDIS_URL=redis://host.docker.internal:6379/0 -p 8000:8000 jo
 
 ## Docker Compose (репозиторий `infra`)
 
-Сборка образа с тегом, ожидаемым compose:
+Сборка образа с тегом, ожидаемым compose (версионный тег из `pyproject.toml` плюс `latest`):
 
 ```bash
 cd app/celery-orchestrator
-docker build -t joposcragent/celery-orchestrator:latest .
+python scripts/build_image.py
 ```
 
 Запуск стека оркестратора и Redis:
