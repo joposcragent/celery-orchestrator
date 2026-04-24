@@ -111,7 +111,7 @@ def collection_batch(self, **kwargs: Any) -> None:
             continue
         child_id = str(uuid.uuid4())
         child_kwargs: dict[str, Any] = {
-            "searchQuery": [q],
+            "searchQuery": str(q),
             "parentId": task_id,
             "correlationId": task_id,
         }
@@ -136,12 +136,20 @@ def collection_query(self, **kwargs: Any) -> None:
     worker = getattr(self.request, "hostname", None)
     _mark_started(task_id, worker)
     st = _storage()
-    search_query = kwargs.get("searchQuery") or []
-    if not search_query or not isinstance(search_query, list) or not str(search_query[0]).strip():
+    raw_sq = kwargs.get("searchQuery")
+    if isinstance(raw_sq, list):
+        st.update_task(
+            task_id,
+            state="FAILURE",
+            result="Поисковый запрос должен быть строкой, не массивом",
+        )
+        return
+    query_str = str(raw_sq).strip() if raw_sq is not None else ""
+    if not query_str:
         st.update_task(task_id, state="FAILURE", result="Поисковый запрос пустой")
         return
     s = get_settings()
-    body = {"list": list(search_query)}
+    body = {"query": query_str}
     headers = {"X-Joposcragent-correlationId": task_id}
     url = f"{s.crawler_base_url.rstrip('/')}/crawler/start"
     try:
