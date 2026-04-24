@@ -45,6 +45,39 @@ def test_post_finish_204(client):
     assert r.status_code == 204
 
 
+def test_post_finish_reserved_fields_in_snapshot_not_celery_kwargs(fake_redis, monkeypatch):
+    from celery_orchestrator.storage.redis_store import RedisTaskStorage
+
+    mock_send = MagicMock()
+    monkeypatch.setattr("celery_orchestrator.api.routes.celery_app.send_task", mock_send)
+    c = TestClient(app)
+    cid = "550e8400-e29b-41d4-a716-4466554400cc"
+    r = c.post(
+        "/events-queue/finish",
+        json={
+            "correlationId": cid,
+            "createdAt": "2026-01-01T00:00:00Z",
+            "status": "SUCCEEDED",
+            "result": {"x": 1},
+            "executionLog": "done",
+        },
+    )
+    assert r.status_code == 204
+    celery_kwargs = mock_send.call_args.kwargs["kwargs"]
+    assert "result" not in celery_kwargs
+    assert "status" not in celery_kwargs
+    assert "executionLog" not in celery_kwargs
+    assert celery_kwargs["correlationId"] == cid
+
+    task_id = mock_send.call_args.kwargs["task_id"]
+    st = RedisTaskStorage(fake_redis, "orch:")
+    doc = st.get_raw(task_id)
+    assert doc is not None
+    assert doc["result"] == {"x": 1}
+    assert doc["executionLog"] == "done"
+    assert doc["finishEventStatus"] == "SUCCEEDED"
+
+
 def test_post_event_unknown_returns_422(client):
     r = client.post(
         "/events-queue/unknown-event",

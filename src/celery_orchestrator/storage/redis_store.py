@@ -40,6 +40,9 @@ class RedisTaskStorage:
         args: list[Any] | None = None,
         parent_id: str | None = None,
         state: str = "PENDING",
+        snapshot_result: Any | None = None,
+        snapshot_execution_log: Any | None = None,
+        finish_event_status: str | None = None,
     ) -> None:
         now = utc_now_iso()
         doc: dict[str, Any] = {
@@ -59,6 +62,12 @@ class RedisTaskStorage:
             "timestamp": now,
             "parent_id": parent_id,
         }
+        if snapshot_result is not None:
+            doc["result"] = snapshot_result
+        if snapshot_execution_log is not None:
+            doc["executionLog"] = snapshot_execution_log
+        if finish_event_status is not None:
+            doc["finishEventStatus"] = finish_event_status
         self._r.set(self._task_key(task_uuid), json.dumps(doc, default=str))
         if parent_id:
             self._r.sadd(self._children_key(parent_id), task_uuid)

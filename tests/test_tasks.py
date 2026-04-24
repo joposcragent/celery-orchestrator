@@ -71,14 +71,15 @@ def test_collection_query_success_then_running_until_finish(fake_redis, settings
     assert captured.get("body") == {"query": "https://q"}
     st = RedisTaskStorage(fake_redis, settings.orch_redis_prefix)
     assert st.get_raw(tid)["state"] == "RUNNING"
-    finish.apply(
-        kwargs={
-            "correlationId": tid,
-            "parentTaskResult": "done",
-            "parentTaskStatus": "SUCCEEDED",
-        },
-        task_id="550e8400-e29b-41d4-a716-4466554400aa",
-    ).get()
+    finish_tid = "550e8400-e29b-41d4-a716-4466554400aa"
+    st.init_task(
+        finish_tid,
+        name="task.finish",
+        kwargs={"correlationId": tid},
+        snapshot_result="done",
+        finish_event_status="SUCCEEDED",
+    )
+    finish.apply(kwargs={"correlationId": tid}, task_id=finish_tid).get()
     assert st.get_raw(tid)["state"] == "SUCCESS"
     assert st.get_raw(tid)["result"] == "done"
     assert st.get_raw("550e8400-e29b-41d4-a716-4466554400aa")["state"] == "SUCCESS"
@@ -125,14 +126,15 @@ def test_evaluation_success_then_running_until_finish(fake_redis, settings):
     evaluation.apply(kwargs={"jobPostingUuid": jid}, task_id=tid).get()
     st = RedisTaskStorage(fake_redis, settings.orch_redis_prefix)
     assert st.get_raw(tid)["state"] == "RUNNING"
-    finish.apply(
-        kwargs={
-            "correlationId": tid,
-            "parentTaskResult": {"eval": "ok"},
-            "parentTaskStatus": "SUCCEEDED",
-        },
-        task_id="550e8400-e29b-41d4-a716-4466554400bb",
-    ).get()
+    finish_tid = "550e8400-e29b-41d4-a716-4466554400bb"
+    st.init_task(
+        finish_tid,
+        name="task.finish",
+        kwargs={"correlationId": tid},
+        snapshot_result={"eval": "ok"},
+        finish_event_status="SUCCEEDED",
+    )
+    finish.apply(kwargs={"correlationId": tid}, task_id=finish_tid).get()
     assert st.get_raw(tid)["state"] == "SUCCESS"
     assert st.get_raw(tid)["result"] == {"eval": "ok"}
 
@@ -173,14 +175,14 @@ def test_finish_updates_parent(fake_redis, settings):
     st = RedisTaskStorage(fake_redis, settings.orch_redis_prefix)
     st.init_task(parent, name="p", kwargs={})
     tid = "550e8400-e29b-41d4-a716-446655440043"
-    finish.apply(
-        kwargs={
-            "correlationId": parent,
-            "parentTaskResult": {"done": True},
-            "parentTaskStatus": "SUCCEEDED",
-        },
-        task_id=tid,
-    ).get()
+    st.init_task(
+        tid,
+        name="task.finish",
+        kwargs={"correlationId": parent},
+        snapshot_result={"done": True},
+        finish_event_status="SUCCEEDED",
+    )
+    finish.apply(kwargs={"correlationId": parent}, task_id=tid).get()
     assert st.get_raw(parent)["state"] == "SUCCESS"
     assert st.get_raw(parent)["result"] == {"done": True}
     assert st.get_raw(tid)["state"] == "SUCCESS"

@@ -1,5 +1,5 @@
 .venv/
-__pycache__/
+__pycache__
 *.py[cod]
 .pytest_cache/
 .coverage
@@ -8,3 +8,8 @@ htmlcov/
 dist/
 build/
 .env
+*.pyc
+
+src/celery_orchestrator/__pycache__/view_builder.cpython-313.pyc
+src/celery_orchestrator/api/__pycache__/routes.cpython-313.pyc
+src/celery_orchestrator/storage/__pycache__/redis_store.cpython-313.pyc

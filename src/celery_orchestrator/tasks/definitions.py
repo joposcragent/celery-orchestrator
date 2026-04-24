@@ -228,8 +228,9 @@ def finish(self, **kwargs: Any) -> None:
     worker = getattr(self.request, "hostname", None)
     _mark_started(task_id, worker)
     st = _storage()
-    parent_result = kwargs.get("parentTaskResult")
-    parent_status = kwargs.get("parentTaskStatus")
+    doc = st.get_raw(task_id) or {}
+    parent_result = doc.get("result")
+    parent_status = doc.get("finishEventStatus")
     if parent_result is None or parent_status is None:
         st.update_task(
             task_id,

@@ -36,3 +36,20 @@ def test_json_serializes_nested(fake_redis):
     st.init_task("u", name="n", kwargs={"d": {"nested": [1, 2]}})
     raw = fake_redis.get("t:task:u")
     assert json.loads(raw)["kwargs"]["d"]["nested"] == [1, 2]
+
+
+def test_init_task_snapshot_fields(fake_redis):
+    st = RedisTaskStorage(fake_redis, "t:")
+    st.init_task(
+        "snap",
+        name="task.finish",
+        kwargs={"correlationId": "x"},
+        snapshot_result={"ok": True},
+        snapshot_execution_log="log line",
+        finish_event_status="SUCCEEDED",
+    )
+    doc = st.get_raw("snap")
+    assert doc["kwargs"] == {"correlationId": "x"}
+    assert doc["result"] == {"ok": True}
+    assert doc["executionLog"] == "log line"
+    assert doc["finishEventStatus"] == "SUCCEEDED"

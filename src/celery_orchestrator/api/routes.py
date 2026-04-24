@@ -14,6 +14,7 @@ from celery_orchestrator.view_builder import orchestration_task_view
 router = APIRouter()
 
 _EVENT_NAMES = frozenset({"collection-batch", "collection-query", "evaluation", "notification"})
+_RESERVED_QUEUE_KEYS = frozenset({"executionLog", "result", "status"})
 
 
 def _storage() -> RedisTaskStorage:
@@ -21,12 +22,29 @@ def _storage() -> RedisTaskStorage:
     return RedisTaskStorage(get_redis_client(s), s.orch_redis_prefix)
 
 
-def _enqueue(task_name: str, kwargs: dict[str, Any]) -> None:
+def _kwargs_for_celery(body: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in body.items() if k not in _RESERVED_QUEUE_KEYS}
+
+
+def _snapshot_init_kwargs(body: dict[str, Any]) -> dict[str, Any]:
+    """Map HTTP body fields into init_task snapshot kwargs (not sent to Celery)."""
+    out: dict[str, Any] = {}
+    if "result" in body and body["result"] is not None:
+        out["snapshot_result"] = body["result"]
+    if "executionLog" in body and body["executionLog"] is not None:
+        out["snapshot_execution_log"] = body["executionLog"]
+    if "status" in body and body["status"] is not None:
+        out["finish_event_status"] = str(body["status"])
+    return out
+
+
+def _enqueue(task_name: str, body: dict[str, Any]) -> None:
     task_id = str(uuid.uuid4())
     st = _storage()
-    st.init_task(task_id, name=task_name, kwargs=kwargs)
+    kwargs_celery = _kwargs_for_celery(body)
+    st.init_task(task_id, name=task_name, kwargs=kwargs_celery, **_snapshot_init_kwargs(body))
     q = get_settings().celery_default_queue
-    celery_app.send_task(task_name, task_id=task_id, kwargs=kwargs, queue=q)
+    celery_app.send_task(task_name, task_id=task_id, kwargs=kwargs_celery, queue=q)
 
 
 @router.post("/events-queue/progress", status_code=204)
@@ -37,10 +55,7 @@ def post_progress(body: dict[str, Any] = Body(...)) -> Response:
 
 @router.post("/events-queue/finish", status_code=204)
 def post_finish(body: dict[str, Any] = Body(...)) -> Response:
-    kwargs = dict(body)
-    kwargs["parentTaskResult"] = body.get("result")
-    kwargs["parentTaskStatus"] = body.get("status")
-    _enqueue("task.finish", kwargs)
+    _enqueue("task.finish", dict(body))
     return Response(status_code=204)
 
 

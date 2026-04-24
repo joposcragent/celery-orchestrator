@@ -8,7 +8,7 @@ def orchestration_task_view(doc: dict[str, Any]) -> dict[str, Any]:
     raw_state = doc.get("state", "PENDING")
     # Внутренний RUNNING (ожидание task.finish) в OpenAPI отображаем как STARTED.
     api_state = "STARTED" if raw_state == "RUNNING" else raw_state
-    return {
+    view: dict[str, Any] = {
         "name": doc.get("name", ""),
         "uuid": doc.get("uuid", ""),
         "state": api_state,
@@ -30,3 +30,6 @@ def orchestration_task_view(doc: dict[str, Any]) -> dict[str, Any]:
         "parentId": doc.get("parentId"),
         "children": doc.get("children"),
     }
+    if "executionLog" in doc:
+        view["executionLog"] = doc["executionLog"]
+    return view
