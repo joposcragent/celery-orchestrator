@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 """Build Docker image joposcragent/celery-orchestrator:<version> and tag :latest."""
 
 from __future__ import annotations

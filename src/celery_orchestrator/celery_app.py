@@ -4,8 +4,10 @@ from celery import Celery
 from celery.schedules import crontab
 
 from celery_orchestrator.config import get_settings
+from celery_orchestrator.logging_setup import configure_logging
 
 settings = get_settings()
+configure_logging()
 
 app = Celery("celery_orchestrator")
 app.conf.broker_url = settings.redis_url
