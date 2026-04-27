@@ -1,6 +1,8 @@
 import pytest
 import fakeredis
+from unittest.mock import MagicMock
 
+from celery_orchestrator.celery_app import app
 from celery_orchestrator.config import get_settings
 
 
@@ -22,4 +24,6 @@ def fake_redis(monkeypatch: pytest.MonkeyPatch) -> fakeredis.FakeStrictRedis:
     monkeypatch.setattr("celery_orchestrator.api.routes.get_redis_client", _client)
     monkeypatch.setattr("celery_orchestrator.tasks.definitions.get_redis_client", _client)
     monkeypatch.setattr("celery_orchestrator.orchestration_wait.get_redis_client", _client)
+    # Orchestration Redis is faked; avoid hitting real Redis for Celery result backend in task tests.
+    monkeypatch.setattr(app.backend, "store_result", MagicMock(return_value=None))
     return r

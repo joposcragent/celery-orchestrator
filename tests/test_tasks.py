@@ -5,8 +5,17 @@ import httpx
 import pytest
 import respx
 
+from celery_orchestrator.celery_app import app
 from celery_orchestrator.config import Settings
 from celery_orchestrator.storage.redis_store import RedisTaskStorage
+
+
+@app.task(bind=True, name="test_helpers.invoke_finish_with_parent")
+def invoke_finish_with_parent(self, finish_tid: str, finish_kwargs: dict[str, object]) -> None:
+    """Eager helper: nested apply so finish sees request.parent_id == self.request.id."""
+    from celery_orchestrator.tasks.definitions import finish
+
+    finish.apply(kwargs=dict(finish_kwargs), task_id=finish_tid).get()
 
 
 @pytest.fixture
@@ -79,7 +88,10 @@ def test_collection_query_success_then_running_until_finish(fake_redis, settings
         snapshot_result="done",
         finish_event_status="SUCCEEDED",
     )
-    finish.apply(kwargs={"correlationId": tid}, task_id=finish_tid).get()
+    invoke_finish_with_parent.apply(
+        args=(finish_tid, {"correlationId": tid}),
+        task_id=tid,
+    ).get()
     assert st.get_raw(tid)["state"] == "SUCCESS"
     assert st.get_raw(tid)["result"] == "done"
     assert st.get_raw("550e8400-e29b-41d4-a716-4466554400aa")["state"] == "SUCCESS"
@@ -134,7 +146,10 @@ def test_evaluation_success_then_running_until_finish(fake_redis, settings):
         snapshot_result={"eval": "ok"},
         finish_event_status="SUCCEEDED",
     )
-    finish.apply(kwargs={"correlationId": tid}, task_id=finish_tid).get()
+    invoke_finish_with_parent.apply(
+        args=(finish_tid, {"correlationId": tid}),
+        task_id=tid,
+    ).get()
     assert st.get_raw(tid)["state"] == "SUCCESS"
     assert st.get_raw(tid)["result"] == {"eval": "ok"}
 
@@ -182,7 +197,10 @@ def test_finish_updates_parent(fake_redis, settings):
         snapshot_result={"done": True},
         finish_event_status="SUCCEEDED",
     )
-    finish.apply(kwargs={"correlationId": parent}, task_id=tid).get()
+    invoke_finish_with_parent.apply(
+        args=(tid, {"correlationId": parent}),
+        task_id=parent,
+    ).get()
     assert st.get_raw(parent)["state"] == "SUCCESS"
     assert st.get_raw(parent)["result"] == {"done": True}
     assert st.get_raw(tid)["state"] == "SUCCESS"
@@ -195,6 +213,68 @@ def test_finish_missing_parent_result(fake_redis, settings):
     finish.apply(kwargs={"correlationId": "550e8400-e29b-41d4-a716-446655440042"}, task_id=tid).get()
     st = RedisTaskStorage(fake_redis, settings.orch_redis_prefix)
     assert st.get_raw(tid)["state"] == "FAILURE"
+
+
+def test_finish_missing_request_parent_id(fake_redis, settings):
+    """No Celery parent_id (API send_task not emulated): orchestration message only."""
+    from celery_orchestrator.tasks.definitions import finish
+
+    tid = "550e8400-e29b-41d4-a716-446655440046"
+    st = RedisTaskStorage(fake_redis, settings.orch_redis_prefix)
+    st.init_task(
+        tid,
+        name="task.finish",
+        kwargs={"correlationId": "550e8400-e29b-41d4-a716-446655440047"},
+        snapshot_result={"ok": True},
+        finish_event_status="SUCCEEDED",
+    )
+    finish.apply(kwargs={"correlationId": "550e8400-e29b-41d4-a716-446655440047"}, task_id=tid).get()
+    assert st.get_raw(tid)["state"] == "FAILURE"
+    assert st.get_raw(tid)["result"] == "Не удалось найти родительскую задачу"
+
+
+def test_finish_parent_not_in_orch_redis(fake_redis, settings):
+    missing_parent = "550e8400-e29b-41d4-a716-446655440061"
+    finish_tid = "550e8400-e29b-41d4-a716-446655440062"
+    st = RedisTaskStorage(fake_redis, settings.orch_redis_prefix)
+    st.init_task(
+        finish_tid,
+        name="task.finish",
+        kwargs={},
+        snapshot_result={"ok": True},
+        finish_event_status="SUCCEEDED",
+    )
+    invoke_finish_with_parent.apply(args=(finish_tid, {}), task_id=missing_parent).get()
+    assert st.get_raw(finish_tid)["state"] == "FAILURE"
+    assert st.get_raw(finish_tid)["result"] == "Не удалось найти родительскую задачу"
+
+
+def test_finish_calls_store_result_for_parent(fake_redis, settings):
+    parent = "550e8400-e29b-41d4-a716-446655440063"
+    st = RedisTaskStorage(fake_redis, settings.orch_redis_prefix)
+    st.init_task(parent, name="p", kwargs={})
+    finish_tid = "550e8400-e29b-41d4-a716-446655440064"
+    st.init_task(
+        finish_tid,
+        name="task.finish",
+        kwargs={},
+        snapshot_result={"x": 1},
+        finish_event_status="SUCCEEDED",
+    )
+    invoke_finish_with_parent.apply(args=(finish_tid, {}), task_id=parent).get()
+    assert app.backend.store_result.call_count >= 1
+    assert app.backend.store_result.call_args[0][0] == parent
+
+
+def test_finalize_after_wait_failure_raises(fake_redis, settings):
+    from celery_orchestrator.tasks.definitions import _finalize_orchestration_task_after_wait
+
+    tid = "550e8400-e29b-41d4-a716-446655440065"
+    st = RedisTaskStorage(fake_redis, settings.orch_redis_prefix)
+    st.init_task(tid, name="task.collection-query", kwargs={})
+    st.update_task(tid, state="FAILURE", result="orch failed")
+    with pytest.raises(RuntimeError, match="orch failed"):
+        _finalize_orchestration_task_after_wait(tid)
 
 
 def test_notification_task(fake_redis, settings):

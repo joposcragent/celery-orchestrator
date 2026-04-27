@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 import httpx
+from celery import states
 from celery.utils.log import get_task_logger
 
 from celery_orchestrator.celery_app import app
@@ -14,6 +15,8 @@ from celery_orchestrator.orchestration_wait import wait_until_orch_not_running
 from celery_orchestrator.storage.redis_store import RedisTaskStorage, get_redis_client, utc_now_iso
 
 log = get_task_logger(__name__)
+
+_MSG_PARENT_NOT_FOUND = "Не удалось найти родительскую задачу"
 
 
 def _storage() -> RedisTaskStorage:
@@ -62,6 +65,45 @@ def _map_finish_status_to_state(status: str) -> str:
     if status == "CANCELLED":
         return "REVOKED"
     return "FAILURE"
+
+
+def _parent_uuid_from_request(task_request: object) -> str | None:
+    pid = getattr(task_request, "parent_id", None)
+    if pid is None:
+        return None
+    s = str(pid).strip()
+    return s or None
+
+
+def _map_orch_state_to_celery_state(orch_state: str) -> str:
+    if orch_state == "SUCCESS":
+        return states.SUCCESS
+    if orch_state == "REVOKED":
+        return states.REVOKED
+    return states.FAILURE
+
+
+def _sync_celery_parent_result(parent_task_id: str, orch_state: str, result: Any) -> None:
+    """Align Celery result backend with orchestration snapshot (separate Redis keys)."""
+    celery_state = _map_orch_state_to_celery_state(orch_state)
+    if celery_state == states.FAILURE:
+        err_text = str(result) if result is not None else orch_state
+        app.backend.store_result(parent_task_id, err_text, celery_state)
+    else:
+        app.backend.store_result(parent_task_id, result, celery_state)
+
+
+def _finalize_orchestration_task_after_wait(task_id: str) -> Any:
+    """After wait_until_orch_not_running: Celery outcome matches orchestration Redis."""
+    st = _storage()
+    doc = st.get_raw(task_id) or {}
+    orch_state = doc.get("state")
+    if orch_state == "SUCCESS":
+        return doc.get("result")
+    if orch_state in ("FAILURE", "REVOKED"):
+        msg = doc.get("result")
+        raise RuntimeError(str(msg) if msg is not None else orch_state)
+    return doc.get("result")
 
 
 @app.task(name="task.beat-hourly-collection-batch")
@@ -202,6 +244,7 @@ def collection_query(self, **kwargs: Any) -> None:
     # apply() в тестах — request.is_eager=True, ожидание пропускаем (иначе deadlock).
     if not self.request.is_eager:
         wait_until_orch_not_running(task_id)
+    return _finalize_orchestration_task_after_wait(task_id)
 
 
 @app.task(name="task.evaluation", bind=True)
@@ -246,6 +289,7 @@ def evaluation(self, **kwargs: Any) -> None:
     log.info("evaluation state=RUNNING waiting for task.finish task_id=%s", task_id)
     if not self.request.is_eager:
         wait_until_orch_not_running(task_id)
+    return _finalize_orchestration_task_after_wait(task_id)
 
 
 @app.task(name="task.notification", bind=True)
@@ -297,21 +341,17 @@ def finish(self, **kwargs: Any) -> None:
             result="Отсутствуют результат и статус родительской задачи",
         )
         return
-    parent_uuid = _corr(kwargs)
+    parent_uuid = _parent_uuid_from_request(self.request)
     if not parent_uuid:
-        log.warning("finish missing parent correlation in kwargs task_id=%s", task_id)
-        st.update_task(
-            task_id,
-            state="FAILURE",
-            result="Отсутствуют correlation_id родительской задачи",
-        )
+        log.warning("finish missing request.parent_id task_id=%s", task_id)
+        st.update_task(task_id, state="FAILURE", result=_MSG_PARENT_NOT_FOUND)
         return
     if not st.exists(parent_uuid):
         log.warning("finish parent task not in redis task_id=%s parent_uuid=%s", task_id, parent_uuid)
-        msg = f"Не удалось найти родительскую задачу {parent_uuid}"
-        st.update_task(task_id, state="FAILURE", result=msg)
+        st.update_task(task_id, state="FAILURE", result=_MSG_PARENT_NOT_FOUND)
         return
     mapped = _map_finish_status_to_state(str(parent_status))
     st.update_task(parent_uuid, state=mapped, result=parent_result)
+    _sync_celery_parent_result(parent_uuid, mapped, parent_result)
     st.update_task(task_id, state="SUCCESS")
     log.info("finish success task_id=%s parent_uuid=%s mapped_state=%s", task_id, parent_uuid, mapped)
