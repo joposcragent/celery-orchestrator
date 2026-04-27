@@ -70,9 +70,24 @@ def _enqueue(task_name: str, body: dict[str, Any]) -> None:
     kwargs_celery = _kwargs_for_celery(body)
     q = s.celery_default_queue
     corr = _body_correlation_id(body)
+    corr_parent = (corr or "").strip() or None
     try:
-        st.init_task(task_id, name=task_name, kwargs=kwargs_celery, **_snapshot_init_kwargs(body))
-        celery_app.send_task(task_name, task_id=task_id, kwargs=kwargs_celery, queue=q)
+        st.init_task(
+            task_id,
+            name=task_name,
+            kwargs=kwargs_celery,
+            parent_id=corr_parent,
+            **_snapshot_init_kwargs(body),
+        )
+        send_kw: dict[str, Any] = {
+            "task_id": task_id,
+            "kwargs": kwargs_celery,
+            "queue": q,
+        }
+        if corr_parent is not None:
+            send_kw["parent_id"] = corr_parent
+            send_kw["root_id"] = corr_parent
+        celery_app.send_task(task_name, **send_kw)
     except Exception:
         _log.exception(
             "enqueue failed task_id=%s task_name=%s queue=%s body_correlationId=%s",

@@ -27,7 +27,7 @@ def orchestration_task_view(doc: dict[str, Any]) -> dict[str, Any]:
         "root": doc.get("root"),
         "rootId": doc.get("rootId"),
         "parent": doc.get("parent"),
-        "parentId": doc.get("parentId"),
+        "parentId": doc.get("parentId") or doc.get("parent_id"),
         "children": doc.get("children"),
     }
     if "executionLog" in doc:

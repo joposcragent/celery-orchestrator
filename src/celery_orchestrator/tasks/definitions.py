@@ -69,7 +69,6 @@ def beat_hourly_collection_batch() -> None:
     now = datetime.now(timezone.utc).isoformat()
     tid = str(uuid.uuid4())
     kwargs: dict[str, Any] = {
-        "correlationId": str(uuid.uuid4()),
         "createdAt": now,
     }
     st = _storage()
@@ -78,7 +77,7 @@ def beat_hourly_collection_batch() -> None:
     log.info(
         "beat_hourly_collection_batch enqueued task_id=%s correlationId=%s",
         tid,
-        kwargs["correlationId"],
+        _corr(kwargs) or "none",
     )
 
 
@@ -90,11 +89,9 @@ def collection_batch(self, **kwargs: Any) -> None:
     st = _storage()
     s = get_settings()
     url = f"{s.settings_manager_base_url.rstrip('/')}/search-query/list"
-    c = _corr(kwargs) or "none"
     log.info(
-        "collection_batch start task_id=%s correlationId=%s settings_url=%s",
+        "collection_batch start task_id=%s settings_url=%s",
         task_id,
-        c,
         url,
     )
     try:
@@ -135,8 +132,7 @@ def collection_batch(self, **kwargs: Any) -> None:
         child_id = str(uuid.uuid4())
         child_kwargs: dict[str, Any] = {
             "searchQuery": str(q),
-            "parentId": task_id,
-            "correlationId": task_id,
+            "parentId": task_id
         }
         st.init_task(
             child_id,
@@ -161,9 +157,8 @@ def collection_query(self, **kwargs: Any) -> None:
     _mark_started(task_id, worker)
     st = _storage()
     log.info(
-        "collection_query start task_id=%s correlationId=%s",
+        "collection_query start task_id=%s",
         task_id,
-        _corr(kwargs) or "none",
     )
     raw_sq = kwargs.get("searchQuery")
     if isinstance(raw_sq, list):

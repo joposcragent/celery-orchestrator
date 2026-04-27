@@ -16,12 +16,40 @@ def test_enqueue_passes_queue_to_send_task(fake_redis, monkeypatch):
     mock_send = MagicMock()
     monkeypatch.setattr("celery_orchestrator.api.routes.celery_app.send_task", mock_send)
     c = TestClient(app)
+    cid = "550e8400-e29b-41d4-a716-446655440000"
     c.post(
         "/events-queue/progress",
-        json={"correlationId": "550e8400-e29b-41d4-a716-446655440000", "createdAt": "2026-01-01T00:00:00Z"},
+        json={"correlationId": cid, "createdAt": "2026-01-01T00:00:00Z"},
     )
     assert mock_send.call_count == 1
-    assert mock_send.call_args.kwargs.get("queue") == "celery"
+    skw = mock_send.call_args.kwargs
+    assert skw.get("queue") == "celery"
+    assert skw.get("parent_id") == cid
+    assert skw.get("root_id") == cid
+
+
+def test_enqueue_send_task_omits_parent_when_no_correlation_id(fake_redis, monkeypatch):
+    mock_send = MagicMock()
+    monkeypatch.setattr("celery_orchestrator.api.routes.celery_app.send_task", mock_send)
+    c = TestClient(app)
+    c.post("/events-queue/progress", json={"createdAt": "2026-01-01T00:00:00Z"})
+    assert mock_send.call_count == 1
+    skw = mock_send.call_args.kwargs
+    assert "parent_id" not in skw
+    assert "root_id" not in skw
+
+
+def test_get_task_parent_id_exposed_as_parentId(client, fake_redis):
+    from celery_orchestrator.storage.redis_store import RedisTaskStorage
+
+    st = RedisTaskStorage(fake_redis, "orch:")
+    p = "550e8400-e29b-41d4-a716-446655440030"
+    ch = "550e8400-e29b-41d4-a716-446655440031"
+    st.init_task(p, name="parent", kwargs={})
+    st.init_task(ch, name="child", kwargs={}, parent_id=p)
+    r = client.get(f"/tasks/{ch}")
+    assert r.status_code == 200
+    assert r.json()["parentId"] == p
 
 
 def test_post_progress_204(client):
@@ -90,6 +118,9 @@ def test_post_finish_reserved_fields_in_snapshot_not_celery_kwargs(fake_redis, m
     assert "status" not in celery_kwargs
     assert "executionLog" not in celery_kwargs
     assert celery_kwargs["correlationId"] == cid
+    skw = mock_send.call_args.kwargs
+    assert skw["parent_id"] == cid
+    assert skw["root_id"] == cid
 
     task_id = mock_send.call_args.kwargs["task_id"]
     st = RedisTaskStorage(fake_redis, "orch:")
@@ -98,6 +129,7 @@ def test_post_finish_reserved_fields_in_snapshot_not_celery_kwargs(fake_redis, m
     assert doc["result"] == {"x": 1}
     assert doc["executionLog"] == "done"
     assert doc["finishEventStatus"] == "SUCCEEDED"
+    assert doc["parent_id"] == cid
 
 
 def test_post_event_unknown_returns_422(client):
