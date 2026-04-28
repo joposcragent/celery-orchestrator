@@ -213,9 +213,26 @@ def test_finish_missing_parent_result(fake_redis, settings):
     finish.apply(kwargs={"correlationId": "550e8400-e29b-41d4-a716-446655440042"}, task_id=tid).get()
     st = RedisTaskStorage(fake_redis, settings.orch_redis_prefix)
     assert st.get_raw(tid)["state"] == "FAILURE"
+    assert "статус" in st.get_raw(tid)["result"]
 
 
-def test_finish_missing_request_parent_id(fake_redis, settings):
+def test_finish_success_status_only_null_result_like_evaluator(fake_redis, settings):
+    """job-postings-evaluator FinishEventRequest: status + correlationId, no result field."""
+    parent = "550e8400-e29b-41d4-a716-446655440066"
+    st = RedisTaskStorage(fake_redis, settings.orch_redis_prefix)
+    st.init_task(parent, name="task.evaluation", kwargs={"jobPostingUuid": "x"})
+    st.update_task(parent, state="RUNNING", result=None)
+    finish_tid = "550e8400-e29b-41d4-a716-446655440067"
+    st.init_task(
+        finish_tid,
+        name="task.finish",
+        kwargs={"correlationId": parent, "status": "SUCCEEDED", "createdAt": "2026-04-28T00:00:00Z"},
+        finish_event_status="SUCCEEDED",
+    )
+    invoke_finish_with_parent.apply(args=(finish_tid, {}), task_id=parent).get()
+    assert st.get_raw(parent)["state"] == "SUCCESS"
+    assert st.get_raw(parent)["result"] is None
+    assert st.get_raw(finish_tid)["state"] == "SUCCESS"
     """No Celery parent_id (API send_task not emulated): orchestration message only."""
     from celery_orchestrator.tasks.definitions import finish
 

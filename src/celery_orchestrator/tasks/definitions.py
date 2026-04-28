@@ -328,17 +328,18 @@ def finish(self, **kwargs: Any) -> None:
     doc = st.get_raw(task_id) or {}
     parent_result = doc.get("result")
     parent_status = doc.get("finishEventStatus")
-    if parent_result is None or parent_status is None:
+    # Клиенты (например job-postings-evaluator) шлют `status`, но часто без `result` —
+    # тогда в снимке finish остаётся result=null; этого достаточно для завершения родителя.
+    if parent_status is None:
         log.warning(
-            "finish missing parent snapshot fields task_id=%s has_result=%s has_finishEventStatus=%s",
+            "finish missing finishEventStatus task_id=%s has_result=%s",
             task_id,
             parent_result is not None,
-            parent_status is not None,
         )
         st.update_task(
             task_id,
             state="FAILURE",
-            result="Отсутствуют результат и статус родительской задачи",
+            result="Отсутствует статус завершения (status) в теле события finish",
         )
         return
     parent_uuid = _parent_uuid_from_request(self.request)
