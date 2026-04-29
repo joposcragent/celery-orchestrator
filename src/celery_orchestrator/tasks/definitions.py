@@ -172,9 +172,12 @@ def collection_batch(self, **kwargs: Any) -> None:
         if not q:
             continue
         child_id = str(uuid.uuid4())
+        raw_name = row.get("name")
+        display_name = str(raw_name).strip() if raw_name is not None else ""
         child_kwargs: dict[str, Any] = {
             "searchQuery": str(q),
-            "parentId": task_id
+            "name": display_name,
+            "parentId": task_id,
         }
         st.init_task(
             child_id,

@@ -47,7 +47,7 @@ def test_collection_batch_empty_list(fake_redis, settings):
 def test_collection_batch_spawns_children(fake_redis, settings, monkeypatch: pytest.MonkeyPatch):
     from celery_orchestrator.tasks.definitions import collection_batch
 
-    payload = [[{"uuid": "550e8400-e29b-41d4-a716-446655440031", "query": "https://hh.example"}]]
+    payload = [[{"uuid": "550e8400-e29b-41d4-a716-446655440031", "query": "https://hh.example", "name": "Example search"}]]
     respx.get("http://settings.test/search-query/list").mock(return_value=httpx.Response(200, json=payload))
     send = MagicMock()
     monkeypatch.setattr("celery_orchestrator.tasks.definitions.app.send_task", send)
@@ -58,6 +58,7 @@ def test_collection_batch_spawns_children(fake_redis, settings, monkeypatch: pyt
     assert args[0] == "task.collection-query"
     assert kwargs.get("queue") == "celery"
     assert kwargs["kwargs"]["searchQuery"] == "https://hh.example"
+    assert kwargs["kwargs"]["name"] == "Example search"
     assert kwargs["kwargs"]["parentId"] == tid
 
 
