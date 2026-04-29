@@ -175,9 +175,9 @@ def collection_batch(self, **kwargs: Any) -> None:
         raw_name = row.get("name")
         display_name = str(raw_name).strip() if raw_name is not None else ""
         child_kwargs: dict[str, Any] = {
-            "searchQuery": str(q),
             "name": display_name,
             "parentId": task_id,
+            "searchQuery": str(q),
         }
         st.init_task(
             child_id,
