@@ -21,9 +21,20 @@ def utc_now_iso() -> str:
 class RedisTaskStorage:
     """Persists orchestration task snapshots and parent/child links."""
 
-    def __init__(self, client: redis.Redis, prefix: str) -> None:
+    def __init__(
+        self,
+        client: redis.Redis,
+        prefix: str,
+        *,
+        record_ttl_seconds: int | None = None,
+    ) -> None:
         self._r = client
         self._prefix = prefix
+        self._ttl = (
+            record_ttl_seconds
+            if record_ttl_seconds is not None
+            else get_settings().orch_redis_record_ttl_seconds
+        )
 
     def _task_key(self, task_uuid: str) -> str:
         return f"{self._prefix}task:{task_uuid}"
@@ -68,9 +79,11 @@ class RedisTaskStorage:
             doc["executionLog"] = snapshot_execution_log
         if finish_event_status is not None:
             doc["finishEventStatus"] = finish_event_status
-        self._r.set(self._task_key(task_uuid), json.dumps(doc, default=str))
+        self._r.set(self._task_key(task_uuid), json.dumps(doc, default=str), ex=self._ttl)
         if parent_id:
-            self._r.sadd(self._children_key(parent_id), task_uuid)
+            ck = self._children_key(parent_id)
+            self._r.sadd(ck, task_uuid)
+            self._r.expire(ck, self._ttl)
 
     def exists(self, task_uuid: str) -> bool:
         return bool(self._r.exists(self._task_key(task_uuid)))
@@ -87,7 +100,7 @@ class RedisTaskStorage:
             doc = {"uuid": task_uuid, "args": [], "kwargs": {}, "received": utc_now_iso()}
         doc.update(fields)
         doc["timestamp"] = utc_now_iso()
-        self._r.set(self._task_key(task_uuid), json.dumps(doc, default=str))
+        self._r.set(self._task_key(task_uuid), json.dumps(doc, default=str), ex=self._ttl)
 
     def list_child_ids(self, parent_uuid: str) -> list[str]:
         members = self._r.smembers(self._children_key(parent_uuid))

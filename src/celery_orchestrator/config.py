@@ -36,6 +36,30 @@ class Settings(BaseSettings):
 
     #: Имя очереди Celery для send_task (должно совпадать с очередями воркера, см. -Q).
     celery_default_queue: str = "celery"
+    #: TTL записей Celery result backend в Redis для задач не в терминальном состоянии (сек).
+    celery_result_ttl_seconds: int = Field(
+        default=432_000,
+        ge=1,
+        validation_alias=AliasChoices("CELERY_RESULT_TTL_SECONDS", "celery_result_ttl_seconds"),
+    )
+    #: TTL в Redis для завершённых (SUCCESS/FAILURE/…) записей result backend (сек).
+    celery_result_ready_ttl_seconds: int = Field(
+        default=86_400,
+        ge=1,
+        validation_alias=AliasChoices(
+            "CELERY_RESULT_READY_TTL_SECONDS",
+            "celery_result_ready_ttl_seconds",
+        ),
+    )
+    #: TTL снимков оркестрации (`orch:task:*`, `orch:children:*`) в Redis (сек).
+    orch_redis_record_ttl_seconds: int = Field(
+        default=432_000,
+        ge=1,
+        validation_alias=AliasChoices(
+            "ORCH_REDIS_RECORD_TTL_SECONDS",
+            "orch_redis_record_ttl_seconds",
+        ),
+    )
     #: Сколько ждать task.finish для collection-query / evaluation (сек).
     orchestration_finish_wait_timeout_seconds: float = 604800.0
     orchestration_finish_poll_interval_seconds: float = 0.25

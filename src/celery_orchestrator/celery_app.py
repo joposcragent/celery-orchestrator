@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import timedelta
+
 from celery import Celery
 from celery.schedules import crontab
 
@@ -11,7 +13,11 @@ configure_logging()
 
 app = Celery("celery_orchestrator")
 app.conf.broker_url = settings.redis_url
-app.conf.result_backend = settings.redis_url
+app.conf.result_expires = timedelta(seconds=settings.celery_result_ttl_seconds)
+app.conf.result_ready_expires = timedelta(seconds=settings.celery_result_ready_ttl_seconds)
+app.conf.result_backend = (
+    "celery_orchestrator.redis_result_backend:TieredExpiryRedisBackend+" + settings.redis_url
+)
 app.conf.task_default_queue = settings.celery_default_queue
 app.conf.task_create_missing_queues = True
 app.conf.task_track_started = True
