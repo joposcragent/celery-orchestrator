@@ -39,7 +39,10 @@ def _mark_started(task_id: str, worker: str | None) -> None:
 
 
 def _flatten_query_list(payload: Any) -> list[dict[str, Any]]:
-    """Normalize settings-manager /search-query/list JSON (array or nested array)."""
+    """Normalize settings-manager /search-query/list JSON (array or nested array).
+
+    Оркестратор запрашивает список с ``activeOnly=true``; ответ уже без неактивных строк.
+    """
     if payload is None:
         return []
     if isinstance(payload, list):
@@ -130,7 +133,7 @@ def collection_batch(self, **kwargs: Any) -> None:
     _mark_started(task_id, worker)
     st = _storage()
     s = get_settings()
-    url = f"{s.settings_manager_base_url.rstrip('/')}/search-query/list"
+    url = f"{s.settings_manager_base_url.rstrip('/')}/search-query/list?activeOnly=true"
     log.info(
         "collection_batch start task_id=%s settings_url=%s",
         task_id,
@@ -168,8 +171,6 @@ def collection_batch(self, **kwargs: Any) -> None:
         return
     count = 0
     for row in rows:
-        if row.get("isActive") is not True:
-            continue
         q = row.get("query")
         if not q:
             continue

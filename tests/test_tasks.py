@@ -34,7 +34,9 @@ def settings(monkeypatch: pytest.MonkeyPatch) -> Settings:
 def test_collection_batch_empty_list(fake_redis, settings):
     from celery_orchestrator.tasks.definitions import collection_batch
 
-    respx.get("http://settings.test/search-query/list").mock(return_value=httpx.Response(200, json=[]))
+    respx.get("http://settings.test/search-query/list", params={"activeOnly": "true"}).mock(
+        return_value=httpx.Response(200, json=[]),
+    )
     tid = "550e8400-e29b-41d4-a716-446655440030"
     collection_batch.apply(kwargs={"correlationId": "x", "createdAt": "2026-01-01T00:00:00Z"}, task_id=tid).get()
     st = RedisTaskStorage(fake_redis, settings.orch_redis_prefix)
@@ -48,7 +50,9 @@ def test_collection_batch_spawns_children(fake_redis, settings, monkeypatch: pyt
     from celery_orchestrator.tasks.definitions import collection_batch
 
     payload = [[{"uuid": "550e8400-e29b-41d4-a716-446655440031", "query": "https://hh.example", "name": "Example search", "isActive": True, "isLazyScraping": False}]]
-    respx.get("http://settings.test/search-query/list").mock(return_value=httpx.Response(200, json=payload))
+    respx.get("http://settings.test/search-query/list", params={"activeOnly": "true"}).mock(
+        return_value=httpx.Response(200, json=payload),
+    )
     send = MagicMock()
     monkeypatch.setattr("celery_orchestrator.tasks.definitions.app.send_task", send)
     tid = "550e8400-e29b-41d4-a716-446655440032"
@@ -62,29 +66,6 @@ def test_collection_batch_spawns_children(fake_redis, settings, monkeypatch: pyt
     assert kwargs["kwargs"]["lazy"] is False
     assert kwargs["kwargs"]["name"] == "Example search"
     assert kwargs["kwargs"]["parentId"] == tid
-
-
-@respx.mock
-def test_collection_batch_skips_inactive_queries(fake_redis, settings, monkeypatch: pytest.MonkeyPatch):
-    from celery_orchestrator.tasks.definitions import collection_batch
-
-    payload = [
-        [
-            {
-                "uuid": "550e8400-e29b-41d4-a716-4466554400d1",
-                "query": "https://inactive.example",
-                "name": "Off",
-                "isActive": False,
-                "isLazyScraping": False,
-            },
-        ],
-    ]
-    respx.get("http://settings.test/search-query/list").mock(return_value=httpx.Response(200, json=payload))
-    send = MagicMock()
-    monkeypatch.setattr("celery_orchestrator.tasks.definitions.app.send_task", send)
-    tid = "550e8400-e29b-41d4-a716-4466554400d2"
-    collection_batch.apply(kwargs={"correlationId": "x", "createdAt": "2026-01-01T00:00:00Z"}, task_id=tid).get()
-    assert send.call_count == 0
 
 
 @respx.mock
