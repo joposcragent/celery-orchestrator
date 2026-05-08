@@ -47,7 +47,7 @@ def test_collection_batch_empty_list(fake_redis, settings):
 def test_collection_batch_spawns_children(fake_redis, settings, monkeypatch: pytest.MonkeyPatch):
     from celery_orchestrator.tasks.definitions import collection_batch
 
-    payload = [[{"uuid": "550e8400-e29b-41d4-a716-446655440031", "query": "https://hh.example", "name": "Example search"}]]
+    payload = [[{"uuid": "550e8400-e29b-41d4-a716-446655440031", "query": "https://hh.example", "name": "Example search", "isActive": True, "isLazyScraping": False}]]
     respx.get("http://settings.test/search-query/list").mock(return_value=httpx.Response(200, json=payload))
     send = MagicMock()
     monkeypatch.setattr("celery_orchestrator.tasks.definitions.app.send_task", send)
@@ -58,8 +58,33 @@ def test_collection_batch_spawns_children(fake_redis, settings, monkeypatch: pyt
     assert args[0] == "task.collection-query"
     assert kwargs.get("queue") == "celery"
     assert kwargs["kwargs"]["searchQuery"] == "https://hh.example"
+    assert kwargs["kwargs"]["searchQueryUuid"] == "550e8400-e29b-41d4-a716-446655440031"
+    assert kwargs["kwargs"]["lazy"] is False
     assert kwargs["kwargs"]["name"] == "Example search"
     assert kwargs["kwargs"]["parentId"] == tid
+
+
+@respx.mock
+def test_collection_batch_skips_inactive_queries(fake_redis, settings, monkeypatch: pytest.MonkeyPatch):
+    from celery_orchestrator.tasks.definitions import collection_batch
+
+    payload = [
+        [
+            {
+                "uuid": "550e8400-e29b-41d4-a716-4466554400d1",
+                "query": "https://inactive.example",
+                "name": "Off",
+                "isActive": False,
+                "isLazyScraping": False,
+            },
+        ],
+    ]
+    respx.get("http://settings.test/search-query/list").mock(return_value=httpx.Response(200, json=payload))
+    send = MagicMock()
+    monkeypatch.setattr("celery_orchestrator.tasks.definitions.app.send_task", send)
+    tid = "550e8400-e29b-41d4-a716-4466554400d2"
+    collection_batch.apply(kwargs={"correlationId": "x", "createdAt": "2026-01-01T00:00:00Z"}, task_id=tid).get()
+    assert send.call_count == 0
 
 
 @respx.mock
@@ -75,10 +100,20 @@ def test_collection_query_success_then_running_until_finish(fake_redis, settings
     respx.post("http://crawler.test/crawler/start").mock(side_effect=on_request)
     tid = "550e8400-e29b-41d4-a716-446655440033"
     collection_query.apply(
-        kwargs={"searchQuery": "https://q", "parentId": tid, "correlationId": tid},
+        kwargs={
+            "searchQuery": "https://q",
+            "searchQueryUuid": "550e8400-e29b-41d4-a716-446655440099",
+            "lazy": False,
+            "parentId": tid,
+            "correlationId": tid,
+        },
         task_id=tid,
     ).get()
-    assert captured.get("body") == {"query": "https://q"}
+    assert captured.get("body") == {
+        "query": "https://q",
+        "lazy": False,
+        "searchQueryUuid": "550e8400-e29b-41d4-a716-446655440099",
+    }
     st = RedisTaskStorage(fake_redis, settings.orch_redis_prefix)
     assert st.get_raw(tid)["state"] == "RUNNING"
     finish_tid = "550e8400-e29b-41d4-a716-4466554400aa"
@@ -104,17 +139,35 @@ def test_collection_query_http_error(fake_redis, settings):
 
     respx.post("http://crawler.test/crawler/start").mock(return_value=httpx.Response(502, text="bad"))
     tid = "550e8400-e29b-41d4-a716-446655440034"
-    collection_query.apply(kwargs={"searchQuery": "x"}, task_id=tid).get()
+    collection_query.apply(
+        kwargs={
+            "searchQuery": "x",
+            "searchQueryUuid": "550e8400-e29b-41d4-a716-4466554400aa",
+        },
+        task_id=tid,
+    ).get()
     st = RedisTaskStorage(fake_redis, settings.orch_redis_prefix)
     assert st.get_raw(tid)["state"] == "FAILURE"
     assert "502" in st.get_raw(tid)["result"]
 
 
+def test_collection_query_empty_search_query_uuid(fake_redis, settings):
+    from celery_orchestrator.tasks.definitions import collection_query
+
+    tid = "550e8400-e29b-41d4-a716-4466554400c0"
+    collection_query.apply(kwargs={"searchQuery": "ok", "searchQueryUuid": ""}, task_id=tid).get()
+    st = RedisTaskStorage(fake_redis, settings.orch_redis_prefix)
+    assert st.get_raw(tid)["state"] == "FAILURE"
+    assert "searchQueryUuid" in st.get_raw(tid)["result"]
+
 def test_collection_query_empty_search(fake_redis, settings):
     from celery_orchestrator.tasks.definitions import collection_query
 
     tid = "550e8400-e29b-41d4-a716-446655440035"
-    collection_query.apply(kwargs={"searchQuery": ""}, task_id=tid).get()
+    collection_query.apply(
+        kwargs={"searchQuery": "", "searchQueryUuid": "550e8400-e29b-41d4-a716-4466554400bb"},
+        task_id=tid,
+    ).get()
     st = RedisTaskStorage(fake_redis, settings.orch_redis_prefix)
     assert st.get_raw(tid)["state"] == "FAILURE"
 

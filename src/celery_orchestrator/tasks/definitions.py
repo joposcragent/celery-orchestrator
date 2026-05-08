@@ -168,16 +168,26 @@ def collection_batch(self, **kwargs: Any) -> None:
         return
     count = 0
     for row in rows:
+        if row.get("isActive") is not True:
+            continue
         q = row.get("query")
         if not q:
+            continue
+        raw_sq_uuid = row.get("uuid")
+        sq_uuid = str(raw_sq_uuid).strip() if raw_sq_uuid is not None else ""
+        if not sq_uuid:
+            log.warning("collection_batch row missing uuid task_id=%s", task_id)
             continue
         child_id = str(uuid.uuid4())
         raw_name = row.get("name")
         display_name = str(raw_name).strip() if raw_name is not None else ""
+        lazy_flag = bool(row.get("isLazyScraping", False))
         child_kwargs: dict[str, Any] = {
             "name": display_name,
             "parentId": task_id,
             "searchQuery": str(q),
+            "searchQueryUuid": sq_uuid,
+            "lazy": lazy_flag,
         }
         st.init_task(
             child_id,
@@ -219,8 +229,19 @@ def collection_query(self, **kwargs: Any) -> None:
         log.warning("collection_query empty searchQuery task_id=%s", task_id)
         st.update_task(task_id, state="FAILURE", result="Поисковый запрос пустой")
         return
+    raw_uuid = kwargs.get("searchQueryUuid")
+    sq_uuid = str(raw_uuid).strip() if raw_uuid is not None else ""
+    if not sq_uuid:
+        log.warning("collection_query empty searchQueryUuid task_id=%s", task_id)
+        st.update_task(
+            task_id,
+            state="FAILURE",
+            result="Отсутствует UUID поискового запроса (searchQueryUuid)",
+        )
+        return
+    lazy_flag = bool(kwargs.get("lazy", False))
     s = get_settings()
-    body = {"query": query_str}
+    body = {"query": query_str, "lazy": lazy_flag, "searchQueryUuid": sq_uuid}
     headers = {"X-Joposcragent-correlationId": task_id}
     url = f"{s.crawler_base_url.rstrip('/')}/crawler/start"
     try:
